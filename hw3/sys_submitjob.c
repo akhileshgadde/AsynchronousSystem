@@ -12,17 +12,17 @@
 
 asmlinkage extern long (*sysptr)(void *arg);
 
-#define MAX_JOBS 1
+#define MAX_JOBS 2
 static int jobcnt = 0; /** Check if the job id exists (not imp) **/
 static int curr = 0; // Variable to hold the current number of jobs in the job queue
 struct mutex mut_lock; // Mutex that protects the producer and consumer job queue handling
 static struct task_struct *consume_thread = NULL; // Consumer thread 
 int first = 0;
+static int p_throttle_flag = 0;
 
 struct job_queue jobs_list;
 
-//wait_queue_head_t producer_waitq;
-
+static DECLARE_WAIT_QUEUE_HEAD(producer_waitq);
 /** Should remove this below later : for debugging **/
 void printJobQ(void);
 
@@ -47,7 +47,7 @@ asmlinkage long submit_job(void *args)
 		goto out;
 	}		
 
-	printk("Job flags: %d\n", job_flags);
+	//printk("Job flags: %d\n", job_flags);
 	
 	if(job_flags == 0) // Job Processing
 	{ 
@@ -58,7 +58,7 @@ asmlinkage long submit_job(void *args)
 			goto out;
 		}
 		
-		printk("Job processing :%d %d\n", kjob->job_id, kjob->job->job_type);	
+		//printk("Job processing :%d %d\n", kjob->job_id, kjob->job->job_type);	
 		err = sys_submitjob(kjob, sizeof(struct kJob));
 	}
 
@@ -108,7 +108,6 @@ struct kJob* copy_job_from_user(void *args)
 		err = -ENOMEM;
 		goto out;
 	}
-	//copy_from_user(kjob->job, args, size );
 	
 	uinp_file = getname(job->input_file);
 	if(!uinp_file || IS_ERR(uinp_file))
@@ -237,9 +236,7 @@ int sys_submitjob(void* args, int len) // use argslen to check the buffers passe
 	threadname[8] = jobcnt + '0'; //need to change to curr
 	threadname[9] = '\0';
 	
-	printk("Thread name: %s\n", threadname);
-	
-	printk("In sys_submitjob %d\n", len);
+	printk("========In syscall....Thread name: %s=========\n", threadname);
 	
 	if(len == 16)
 	{
@@ -248,7 +245,7 @@ int sys_submitjob(void* args, int len) // use argslen to check the buffers passe
 	
 	else
 	{
-		printk("Processing job.\n");
+		//printk("Processing job.\n");
 		/** Invoke Producer thread **/
 		produce_thread = kthread_run(producer, args, threadname);
         if(!produce_thread || IS_ERR(produce_thread))
@@ -267,20 +264,20 @@ int producer(void *arg)
 {
 	int err = 0;
 	struct job_queue *temp;
-	//int mutex_flag = 0;
 	
 	printk("===Producer===\n");
 	mutex_lock(&mut_lock);
 	printk("Curr in producer: %d\n", curr);
-	if(curr > MAX_JOBS)
+	if((curr+1) > MAX_JOBS)
 	{
-		/** Bad implementation; need to change; add to producer waitq **/
 		printk("Producer waiting...More number of jobs\n");
-		//mutex_flag = 1;
-		//mutex_unlock(&mut_lock);
-		//wait_event_interruptible(producer_waitq, curr < MAX_JOBS);
-		err = -EINVAL;
-		goto out;			
+		
+		mutex_unlock(&mut_lock);
+		wait_event_interruptible(producer_waitq, p_throttle_flag != 0);
+		printk("Producer: woken up after waiting\n");	
+		
+		mutex_lock(&mut_lock);
+		p_throttle_flag = 0;
 	}
 	
 	temp = (struct job_queue*) kmalloc(sizeof(struct job_queue), GFP_KERNEL);
@@ -305,7 +302,6 @@ int producer(void *arg)
 	}
 		 	
 out:
-	//if(mutex_lock == 0)
 	mutex_unlock(&mut_lock);
 	printk("Exiting from the producer.\n");
 	return err;
@@ -315,22 +311,34 @@ int consumer(void *args)
 {
 	int err = 0;
 	struct kJob *kjob;
+	int job_ct = 0;
 	struct job_queue *temp = NULL;
-	//struct list_head *pos;
 
-	//msleep(50000);
-	printk("===Consumer===\n");
+	msleep(50000);
 	while(!kthread_should_stop())
 	{
+		printk("===Consumer===\n");
 		mutex_lock(&mut_lock);
 		printk("Consumer: there are jobs in the queue.\n");
 		temp = getHighestPriorityJob();
 	
 		kjob = (struct kJob*) temp->work;
-		printk("Consumer: Job details extracted %d %d %s %s\n", kjob->job_id, kjob->job->job_type,kjob->job->input_file, kjob->job->output_file );	
+		printk("Consumer: Job details extracted %d %d %s %s\n", kjob->job_id, kjob->job->priority, kjob->job->input_file, kjob->job->output_file );	
 		
 		list_del(&(temp->list));
 		curr--;
+
+		if(curr < MAX_JOBS)
+		{
+			printk("Consumer: There can be producers waiting\n");
+            p_throttle_flag = 1;
+			job_ct = MAX_JOBS - curr;
+			while (job_ct > 0) 
+			{
+            	wake_up_interruptible(&producer_waitq);
+				job_ct--;
+			}
+		}
 
 		if(curr == 0)
 		{
@@ -338,15 +346,15 @@ int consumer(void *args)
 			set_current_state(TASK_INTERRUPTIBLE);
 			mutex_unlock(&mut_lock);
 			schedule();
-		}
+		}	
 		else
 		{
-			//if(curr < MAX_JOBS)
-			//	wake_up_interruptible(&producer_waitq);
 			printk("Consumer: more jobs in the queue.\n");
 			mutex_unlock(&mut_lock);
-		}
+        }
+		
 		// *********process the job	*************
+		
 		if(temp)
 		{
 			kfree(temp);
@@ -357,12 +365,13 @@ int consumer(void *args)
 	return err;
 }
 
+/* Limitation: max priority that can be assigned is 256. Put a condition in user code accordingly */
 struct job_queue* getHighestPriorityJob(void)
 {
 	struct list_head *pos;
 	struct job_queue *temp;
 	struct kJob *kjob;
-	int max = -1;
+	int min = 257;
 	struct job_queue *ret = NULL;
 	
 	list_for_each(pos, &(jobs_list.list))
@@ -371,9 +380,9 @@ struct job_queue* getHighestPriorityJob(void)
 
 		kjob = (struct kJob*) temp->work;
 		
-		if(kjob->job->priority > max)
+		if(kjob->job->priority < min)
 		{
-			max = kjob->job->priority;
+			min = kjob->job->priority;
 			ret = temp;
 		}
 	}
@@ -393,7 +402,7 @@ void printJobQ(void)
 		
 		kjob = (struct kJob*) temp->work;
 
-		printk("Job details in the queue; %d %d %s %s\n", kjob->job_id, kjob->job->job_type, kjob->job->input_file, kjob->job->output_file);
+		printk("Job details in the queue; %d %d %s %s\n", kjob->job_id, kjob->job->priority, kjob->job->input_file, kjob->job->output_file);
 				
 	}
 
