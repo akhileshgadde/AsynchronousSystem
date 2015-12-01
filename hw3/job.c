@@ -40,7 +40,7 @@ struct Job* createJob(int type, const char* infile, const char* outfile, const c
 /* Generates the JobInfo structure to pass through the kernel
  * Returns NULL in case of any error
  */
-struct JobInfo* createJobInfo(int flags, int job_id, int priority)
+struct JobInfo* createJobInfo(int flags, int job_id, int priority, struct JobQInfo *jobqinfo)
 {
 	struct JobInfo *jobinfo = NULL;
 
@@ -52,6 +52,7 @@ struct JobInfo* createJobInfo(int flags, int job_id, int priority)
 	jobinfo->flags = flags;
 	jobinfo->job_id = job_id;
 	jobinfo->priority = priority;
+	jobinfo->jobq = jobqinfo;
 
 	return jobinfo;
 }
@@ -84,152 +85,47 @@ void* processEnDecryptReq(int flags)
 	//printf("Input file: %s Output file: %s Key: %s\n", inputfile, outputfile, key);
 	//printf("Len: Input file: %d Output file: %d Key: %d\n", strlen(inputfile), strlen(outputfile), strlen(key));
 
-	printf("Enter job priority (Integer greater than 0)\n");
+	printf("Enter job priority (Integer between 0 and 256)\n");
 	scanf("%d", &priority);
+	
+	if(priority <=0 || priority > 256)
+	{
+		printf("Invalid priority\n");
+		return NULL;
+	}
 
 	job = createJob(flags, inputfile, outputfile, key, priority);
 	
 	return (void*) job;
 }
 
-void* processRemoveReq(void)
+void* processGetNumJobs(void)
 {
 	struct JobInfo *jobinfo = NULL;
-	char choice;
-	int jobid;
+	
+	jobinfo = createJobInfo(4, -1, -1, NULL);
 
-	printf("Do you want to remove all jobs from the queue [Y/y/N/n]\n");
-	scanf("%c", &choice);
-	getchar();
+    return (void*) jobinfo;
+}
 
-	if(choice == 'y' || choice == 'Y')
-		jobinfo = createJobInfo(0, -1, -1);
-		
-	else if(choice == 'n' || choice == 'N')
+void* processListReq(int jobcnt)
+{
+	int i;
+	struct JobInfo *jobinfo = NULL;
+	struct JobQInfo *jobqinfo = NULL;
+
+	jobqinfo = (struct JobQInfo*) malloc(sizeof(struct JobQInfo));
+	
+	jobqinfo->job_cnt = jobcnt;
+	jobqinfo->jobs_arr = (struct JobDesc**) malloc(sizeof(struct JobDesc*) * jobcnt);
+	
+	for(i=0; i<jobcnt; i++)
 	{
-		printf("Do you want to check all the jobs in the queue [Y/y/N/n]\n");
-		scanf("%c", &choice);
-		getchar();
-		
-		if(choice == 'y' || choice == 'Y')
-		{
-			jobinfo = createJobInfo(2, -1, -1); /** Need to change **/
-
-			printf("Enter the job id to remove:\n");
-			scanf("%d", &jobid);
+		jobqinfo->jobs_arr[i] = (struct JobDesc*) malloc(sizeof(struct JobDesc));
+		memset(jobqinfo->jobs_arr[i], 0, sizeof(struct JobDesc));
+	}
 			
-			jobinfo = createJobInfo(1, jobid, -1);
-		}
-		
-		else if(choice == 'n' || choice == 'N')
-		{
-			printf("Enter job id to remove:\n");
-			scanf("%d", &jobid);
-
-			jobinfo = createJobInfo(1, jobid, -1);
-		}
-	
-		else
-			printf("Invalid choice.\n");
-	}
-	else
-		printf("Invalid choice.\n");
-
-	return (void*) jobinfo;
-}
-
-void* processListReq(void)
-{
-	struct JobInfo *jobinfo = NULL;
-
-	jobinfo = createJobInfo(2, -1, -1);
+	jobinfo = createJobInfo(2, -1, -1, jobqinfo);
 	
 	return (void*) jobinfo;
-}
-
-void* processChangePriorityReq(void)
-{
-	struct JobInfo *jobinfo = NULL;
-	char choice;
-	int jobid, priority;
-
-	printf("Do you want to check all the jobs in the queue [Y/y/N/n]\n");
-	scanf("%c", &choice);
-	getchar();
-
-	if(choice == 'y' || choice == 'Y')
-	{
-		jobinfo = createJobInfo(2, -1, -1); /** Need to change **/
-
-		printf("Enter the job id to change priority:\n");
-		scanf("%d", &jobid);
-
-		printf("Enter the priority:\n");
-		scanf("%d", &priority);
-		
-		jobinfo = createJobInfo(3, jobid, priority);
-	}
-
-	else if(choice == 'n' || choice == 'N')
-	{
-		printf("Enter job id to change priority\n");
-		scanf("%d", &jobid);
-
-		printf("Enter the priority:\n");
-        scanf("%d", &priority);
-
-		jobinfo = createJobInfo(3, jobid, priority);
-	}
-
-	else
-		printf("Invalid choice.\n");	
-	
-	return (void*) jobinfo;	
-}
-
-/** Need to handle bad inputs from the user: like priority <= 0 etc. **/
-void* getUserInput(int *err)
-{
-	char choice;
-	void* ret = NULL;
-	
-	printf("=============================\n");
-	printf("Enter your choice of job:\n");
-	printf("[E/e]ncryption\n");
-	printf("[D/d]ecrytion\n");
-	printf("[R/r]emove a job\n");
-	printf("[L/l]ist jobs.\n");
-	printf("[C/c]hange priority of a job.\n");
-	printf("[Q/q]uit\n");
-	printf("=============================\n");
-		
-	scanf("%c", &choice);
-	getchar();
-	
-	if(choice == 'e' || choice == 'E')
-		ret = processEnDecryptReq(0);
-
-	else if(choice == 'd' || choice == 'D')
-		ret = processEnDecryptReq(1);
-
-	else if(choice == 'r' || choice == 'R') /*** need to handle the case when multiple job ids can be removed ***/ 
-		ret = processRemoveReq();
-
-	else if(choice == 'l' || choice == 'L')
-		ret = processListReq();
-
-	else if(choice == 'c' || choice == 'C')
-		ret = processChangePriorityReq();
-
-	else if(choice == 'q' || choice == 'Q')
-		goto out;		
-
-	else
-		printf("Invalid choice.\n");
-		
-	/*** Need to free memory for in out files and key?? ***/
-	if(!ret)
-		*err = -1;
-out:
-	return ret;
 }

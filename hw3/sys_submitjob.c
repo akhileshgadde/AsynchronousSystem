@@ -70,7 +70,7 @@ asmlinkage long submit_job(void *args)
 			err = -ENOMEM; /** can change **/
 			goto out;
 		}
-		printk("Job queue processing flags:%d\n", jobinfo->flags);
+		//printk("Job queue processing flags:%d\n", jobinfo->flags);
 		
 		err = sys_submitjob(jobinfo, sizeof(struct JobInfo));
 	}
@@ -201,7 +201,8 @@ struct JobInfo* copy_jobinfo_from_user(void *args)
 {
 	int err = 0;
 	struct JobInfo *jobinfo = NULL;
-
+	struct JobQInfo *jobq = NULL;
+	
 	jobinfo = (struct JobInfo*) kmalloc(sizeof(struct JobInfo), GFP_KERNEL);
 	if(!jobinfo)
 	{
@@ -216,9 +217,30 @@ struct JobInfo* copy_jobinfo_from_user(void *args)
 		goto out;
 	}
 
+	if(jobinfo->flags == 2)
+	{
+		jobq = (struct JobQInfo*) kmalloc(sizeof(struct JobQInfo), GFP_KERNEL);
+		if(!jobq)
+		{
+			err = -ENOMEM;
+			goto out;
+		}
+
+		err = copy_from_user(jobq, jobinfo->jobq, sizeof(struct JobQInfo));
+		if(err != 0)
+		{
+			err = -ENOMEM;
+			goto out;
+		}
+
+		jobinfo->jobq = jobq;
+	}
+
 out:
 	if(err < 0)
 	{
+		if(jobq)
+			kfree(jobq);
 		if(jobinfo)
 			kfree(jobinfo);
 		jobinfo = NULL;
@@ -227,25 +249,218 @@ out:
 	return jobinfo;
 }
 
+int getJobsFromQueue(struct JobInfo *jobinfo)
+{
+	int jobcnt;
+	int err = 0;
+	struct list_head *pos;
+    struct job_queue *temp;
+    struct kJob *kjob;
+	struct JobDesc *jobdesc = NULL;
+	int i = 0;
+	int maxcnt;
+	
+	jobcnt = jobinfo->jobq->job_cnt;
+	
+	mutex_lock(&mut_lock);	
+	maxcnt = (curr <= jobcnt) ? curr : jobcnt;
+
+	list_for_each(pos, &(jobs_list.list))
+    {
+        temp = list_entry(pos, struct job_queue, list);
+
+        kjob = (struct kJob*) temp->work;
+		
+		jobdesc = (struct JobDesc*) kmalloc (sizeof(struct JobDesc), GFP_KERNEL);
+		if(!jobdesc)
+		{
+			err = -ENOMEM;
+			goto out;
+		}
+		
+		jobdesc->job_id = kjob->job_id;
+		jobdesc->job_type = kjob->job->job_type;
+		jobdesc->priority = kjob->job->priority;
+		
+		err = copy_to_user(jobinfo->jobq->jobs_arr[i], jobdesc, sizeof(struct JobDesc));
+        if(err != 0)
+        {
+            err = -EINVAL;
+            goto out;
+        }
+		
+		kfree(jobdesc);
+		i++;
+		
+		if(i == maxcnt)
+			break;	
+	}
+	
+	err = copy_to_user(&(jobinfo->jobq->job_cnt), &maxcnt, sizeof(int));
+				
+out:
+	if(err < 0)
+	{
+		if(jobdesc)
+			kfree(jobdesc);
+	}	
+	
+	mutex_unlock(&mut_lock);
+	return err;
+}
+
+struct job_queue* findJobInQueue(int jobid)
+{
+    struct list_head *pos;
+    struct job_queue *temp;
+    struct kJob *kjob;
+    struct job_queue *ret = NULL;
+
+    list_for_each(pos, &(jobs_list.list))
+    {
+        temp = list_entry(pos, struct job_queue, list);
+
+        kjob = (struct kJob*) temp->work;
+
+        if(kjob->job_id == jobid)
+		{
+			ret = temp;
+			break;
+		}
+    }
+
+    return ret;
+}
+
+int removeAllJobs(void)
+{
+	struct list_head *pos, *temp_node;
+    struct job_queue *temp;
+
+	mutex_lock(&mut_lock);
+	
+	list_for_each_safe(pos, temp_node, &(jobs_list.list))
+	{
+		temp = list_entry(pos, struct job_queue, list);
+		list_del(pos);
+		kfree(temp);
+		temp = NULL;
+	}
+	
+	curr = 0;	
+	mutex_unlock(&mut_lock);
+	return 0;		
+}
+
+int removeSingleJob(int jobid)
+{
+	int ret = 0;
+	struct job_queue *job = NULL;
+	
+	mutex_lock(&mut_lock);
+	job = findJobInQueue(jobid);
+	if(!job)
+	{
+		printk("Job is not in the queue.\n");
+		ret = -EINVAL;
+		goto out;
+	}
+	
+	list_del(&(job->list));
+	kfree(job);
+	job = NULL;
+	
+	curr--;
+out:
+	mutex_unlock(&mut_lock);
+	return ret;
+}
+
+int changeJobPriorityInQueue(int jobid, int priority)
+{
+	int ret = 0;
+    struct job_queue *job = NULL;
+	struct kJob *temp;
+
+    mutex_lock(&mut_lock);
+    job = findJobInQueue(jobid);
+    if(!job)
+    {
+        printk("Job is not in the queue.\n");
+        ret = -EINVAL;
+        goto out;
+    }
+	
+	temp = (struct kJob*) job->work;	
+	temp->job->priority = priority;
+	
+out:
+	mutex_unlock(&mut_lock);
+	return ret;	
+}
+
+int processJobQueueRequest(struct JobInfo *jobinfo)
+{
+	int flags;
+	int ret = 0;
+
+	flags = jobinfo->flags;
+
+	if(flags == 0)
+	{
+		printk("Remove all jobs from the queue\n");
+		ret = removeAllJobs();
+	}
+
+	else if(flags == 1)
+	{
+		printk("Remove one job from the queue\n");
+		ret = removeSingleJob(jobinfo->job_id);
+	}
+
+	else if(flags == 2)
+	{
+		printk("List jobs in the queue\n");
+		ret = getJobsFromQueue(jobinfo);	
+	}
+	
+	else if(flags == 3)
+	{
+		printk("Change priority of a job in the queue\n");
+		ret = changeJobPriorityInQueue(jobinfo->job_id, jobinfo->priority);
+	}
+		
+	else if(flags == 4)
+	{
+		printk("Get job count\n");
+		mutex_lock(&mut_lock);
+		ret = curr;
+		mutex_unlock(&mut_lock);		
+	}
+
+	return ret;
+}
+
 int sys_submitjob(void* args, int len) // use argslen to check the buffers passed by user
 {
 	int err = 0;
 	struct task_struct *produce_thread = NULL;
 	char threadname[10] = "producer";
 	
-	threadname[8] = jobcnt + '0'; //need to change to curr
-	threadname[9] = '\0';
+	printk("========In syscall======= \n");
 	
-	printk("========In syscall....Thread name: %s=========\n", threadname);
-	
-	if(len == 16)
+	if(len == 20)
 	{
-		printk("Processing job queue.\n");
-	}
-	
+		printk("Processing job queue request\n");
+		err = processJobQueueRequest((struct JobInfo*) args);
+	}	
 	else
 	{
-		//printk("Processing job.\n");
+		printk("Processing job: %s\n", threadname);
+		
+		threadname[8] = jobcnt + '0'; //need to change to curr
+		threadname[9] = '\0';
+
 		/** Invoke Producer thread **/
 		produce_thread = kthread_run(producer, args, threadname);
         if(!produce_thread || IS_ERR(produce_thread))
@@ -311,7 +526,7 @@ int consumer(void *args)
 {
 	int err = 0;
 	struct kJob *kjob;
-	int job_ct = 0;
+	//int job_ct = 0;
 	struct job_queue *temp = NULL;
 
 	msleep(50000);
@@ -321,23 +536,30 @@ int consumer(void *args)
 		mutex_lock(&mut_lock);
 		printk("Consumer: there are jobs in the queue.\n");
 		temp = getHighestPriorityJob();
-	
-		kjob = (struct kJob*) temp->work;
-		printk("Consumer: Job details extracted %d %d %s %s\n", kjob->job_id, kjob->job->priority, kjob->job->input_file, kjob->job->output_file );	
+		if(temp != NULL) // Handling the case where all the jobs in the queue can be removed before the consumer woke up
+		{
+			kjob = (struct kJob*) temp->work;
+			printk("Consumer: Job details extracted %d %d %s %s\n", kjob->job_id, kjob->job->priority, kjob->job->input_file, kjob->job->output_file );	
 		
-		list_del(&(temp->list));
-		curr--;
+			list_del(&(temp->list));
+		}
+
+		if(curr != 0) // Producer put jobs in queue, but user removed all of them before consumer got up, so curr=0 then, should not decrement
+			curr--;
 
 		if(curr < MAX_JOBS)
 		{
 			printk("Consumer: There can be producers waiting\n");
             p_throttle_flag = 1;
+			wake_up_interruptible(&producer_waitq);
+			#if 0
 			job_ct = MAX_JOBS - curr;
 			while (job_ct > 0) 
 			{
             	wake_up_interruptible(&producer_waitq);
 				job_ct--;
 			}
+			#endif
 		}
 
 		if(curr == 0)
@@ -405,14 +627,6 @@ void printJobQ(void)
 		printk("Job details in the queue; %d %d %s %s\n", kjob->job_id, kjob->job->priority, kjob->job->input_file, kjob->job->output_file);
 				
 	}
-
-	#if 0
-	/** The highest priority job in the queue **/
-	temp = getHighestPriorityJob();
-	kjob = (struct kJob*) temp->work;
-	printk("The highest priority job in the queue is:\n");
-	printk("Job details in the queue; %d %d %s %s\n", kjob->job_id, kjob->job->job_type, kjob->job->input_file, kjob->job->output_file);
-	#endif
 }
 
 /* Initializes the mutex: mut_lock for handling producer and consumer job queue */
