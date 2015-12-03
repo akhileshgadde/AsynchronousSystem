@@ -73,9 +73,27 @@ int listJobs(void)
 		i++;
 	}
 
-out:
-	if(data)
+out:	
+	if(data) // Need to remove the array that is allocated too
+	{
+		printf("Free data\n");
+		if(((struct JobInfo*) data)->jobq)
+		{
+			i = 0;
+			while(i < jobct)
+			{
+				if(((struct JobInfo*) data)->jobq->jobs_arr[i])
+					free(((struct JobInfo*) data)->jobq->jobs_arr[i]);
+				i++;
+			}
+			if(((struct JobInfo*) data)->jobq->jobs_arr)
+				free(((struct JobInfo*) data)->jobq->jobs_arr);
+			if(((struct JobInfo*) data)->jobq)
+				free(((struct JobInfo*) data)->jobq);
+		}	
 		free(data);
+	}
+	
 	return ret;
 }
 
@@ -279,8 +297,18 @@ int main(int argc, const char *argv[])
 		printf("Invalid choice.\n");
 		
 out:
+	printf("Cleaning up memory\n");
 	if(data)
+	{
+		if(((struct Job*) data)->input_file)
+			free(((struct Job*) data)->input_file);
+		if(((struct Job*) data)->output_file)
+			free(((struct Job*) data)->output_file);
+		if(((struct Job*) data)->key)
+			free(((struct Job*) data)->key);
 		free(data);
+	}
+	
 	if(ret < 0)
 	{
 		printf("syscall returned %d (errno=%d) \n", ret, errno);

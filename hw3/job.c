@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <openssl/md5.h>
 #include "job.h"
 
 #define MAX_NAME_LEN 256
@@ -12,27 +13,61 @@ struct Job* createJob(int type, const char* infile, const char* outfile, const c
 {
 	struct Job *job = NULL;
 
+	MD5_CTX mc;
+    unsigned char hash_key[MD5_DIGEST_LENGTH];
+	
 	job = (struct Job*) malloc(sizeof(struct Job));
 	if(!job)
 		return NULL;
-
+	
+	memset(job, 0, sizeof(struct Job));
+	
 	job->job_flags = 0;	
 	job->job_type = type;	
 	
 	job->input_file = (char*) malloc(strlen(infile)+1);
+	if(!job->input_file)
+		return NULL;
+	
+	memset(job->input_file, 0, sizeof(job->input_file));
+	
 	strcpy(job->input_file, infile);
 	job->input_file[strlen(job->input_file)] = '\0';
 	
 	job->output_file = (char*) malloc(strlen(outfile)+1);
+	if(!job->output_file)
+		return NULL;
+	
+	memset(job->output_file, 0, sizeof(job->output_file));
+	
 	strcpy(job->output_file, outfile);
 	job->output_file[strlen(job->output_file)] = '\0';
-	
-	job->key = (char*) malloc(strlen(key)+1);
-    strcpy(job->key, key);
-    job->key[strlen(job->key)] = '\0';
 
-	job->keylen = strlen(key);
+	MD5_Init(&mc);
+    MD5_Update(&mc, key, strlen(key));
+    MD5_Final(hash_key, &mc);
+	
+	job->key = (char*) malloc(MD5_DIGEST_LENGTH+1);
+	if(!job->key)
+	{
+		printf("Error while allocating memory for the key\n");
+        return NULL;
+	}
+	
+	memset(job->key, 0, sizeof(job->key));
+    memcpy(job->key, hash_key, sizeof(job->key));
+	job->key[16] = '\0';
+    
+	job->keylen = MD5_DIGEST_LENGTH;
+	
 	job->priority = priority;
+
+	#if 0
+	printf("Job details are:\n");
+	printf("Input file: %s\n", job->input_file);
+	printf("Output file: %s\n", job->output_file);
+	printf("Key: %s\n", job->key);
+	#endif
 
 	return job;  
 }
@@ -61,7 +96,7 @@ struct JobInfo* createJobInfo(int flags, int job_id, int priority, struct JobQIn
 static void getInputBuffers(char inputfile[], char outputfile[], char key[])
 {
 	printf("Enter input file:\n");
-	scanf("%s", inputfile); /***change scanf to fgets***/
+	scanf("%s", inputfile); 
 	inputfile[strlen(inputfile)] = '\0';
 	
 	printf("Enter output file:\n");
@@ -75,15 +110,11 @@ static void getInputBuffers(char inputfile[], char outputfile[], char key[])
 
 void* processEnDecryptReq(int flags)
 {
-	/** change to PATHMAX **/
 	char inputfile[MAX_NAME_LEN], outputfile[MAX_NAME_LEN], key[MAX_NAME_LEN];
 	struct Job *job = NULL;
 	int priority;
 
 	getInputBuffers(inputfile, outputfile, key);
-
-	//printf("Input file: %s Output file: %s Key: %s\n", inputfile, outputfile, key);
-	//printf("Len: Input file: %d Output file: %d Key: %d\n", strlen(inputfile), strlen(outputfile), strlen(key));
 
 	printf("Enter job priority (Integer between 0 and 256)\n");
 	scanf("%d", &priority);
@@ -115,9 +146,11 @@ void* processListReq(int jobcnt)
 	struct JobQInfo *jobqinfo = NULL;
 
 	jobqinfo = (struct JobQInfo*) malloc(sizeof(struct JobQInfo));
-	
+	memset(jobqinfo, 0, sizeof(struct JobQInfo));
+ 	
 	jobqinfo->job_cnt = jobcnt;
 	jobqinfo->jobs_arr = (struct JobDesc**) malloc(sizeof(struct JobDesc*) * jobcnt);
+	memset(jobqinfo->jobs_arr, 0, sizeof(struct JobDesc*) * jobcnt);
 	
 	for(i=0; i<jobcnt; i++)
 	{
