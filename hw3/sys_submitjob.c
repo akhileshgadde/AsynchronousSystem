@@ -589,15 +589,17 @@ int consumer(void *args)
 			printk("Consumer: Job details extracted %d %d %s %s\n", kjob->job_id, kjob->job->priority, kjob->job->input_file, kjob->job->output_file );	
 		
 			list_del(&(temp->list));
+
+			strcpy(jret->input_file, kjob->job->input_file);
+			jret->input_file[strlen(kjob->job->input_file)] = '\0';
+			jret->job_type = kjob->job->job_type;	
 		}
 
 		if(curr != 0) // Producer puts jobs in queue, but user removed all of them before consumer got up, so curr=0 then, should not decrement
 			curr--;
 
-		strcpy(jret->input_file, kjob->job->input_file);
-        jret->input_file[strlen(kjob->job->input_file)] = '\0';
-        jret->job_type = kjob->job->job_type;	
 		
+				
 		if(curr < MAX_JOBS)
 		{
 			printk("Consumer: There can be producers waiting\n");
@@ -1055,7 +1057,7 @@ out:
 	if(temp_filp && !IS_ERR(temp_filp))
 		filp_close(temp_filp, NULL);	
 	
-	return ret;
+	return err;
 }
 
 /* Function, unlink_files: unlinks the temporary and output files
@@ -1220,22 +1222,36 @@ void printJobQ(void)
 /* Initializes the mutex: mut_lock for handling producer and consumer job queue */
 /* The consumer thread is started; [For now assume there is only one consumer] */
 /* Initializes the job queue */
+/* Netlink socket creation */
 static int __init init_sys_submitjob(void)
 {
 	int err = 0;
+	struct netlink_kernel_cfg cfg = {
+		.input = netlink_recv_msg,
+    };	
 	
-	printk("installed new sys_submitjob module\n");
 	if (sysptr == NULL)
 			sysptr = submit_job;
 
 	mutex_init(&mut_lock);
        
+	/* Net link socket initialization */
+    printk("INIT: Creating netlink socket.\n");
+    nl_sk = netlink_kernel_create(&init_net, NETLINK_USER, &cfg);
+    if (!nl_sk) {
+        printk(KERN_ERR "%s: Netlink socket creation failed.\n", __FUNCTION__);
+        err = -ENOMEM;
+        goto out;
+    }
+
 	INIT_LIST_HEAD(&jobs_list.list);
  
 	consume_thread = kthread_create(consumer, NULL, "consumer");
 	if(!consume_thread || IS_ERR(consume_thread))
 		err = PTR_ERR(consume_thread); // need to change
 	
+	printk("installed new sys_submitjob module\n");
+out:
 	return err;
 }
 
@@ -1245,7 +1261,6 @@ static void  __exit exit_sys_submitjob(void)
 	/** mutex destroy ?? **/
 	if (sysptr != NULL)
 	{
-		/** Some issue here: kernel oops **/
 		if(consume_thread)
 		{
 			kthread_stop(consume_thread);
@@ -1253,6 +1268,10 @@ static void  __exit exit_sys_submitjob(void)
 		}	
 		sysptr = NULL;
 	}
+	
+	/* Releasing netlink socket */
+	if (nl_sk)
+		netlink_kernel_release(nl_sk);
 	printk("removed sys_submitjob module\n");
 }	
 

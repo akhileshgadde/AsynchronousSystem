@@ -154,9 +154,8 @@ int removeJobs(void)
 	printf("Do you want to remove all jobs from the queue [Y/y/N/n]\n");
 	do{
 		errno = 0;
-		scanf("%c", &choice);
+		scanf(" %c", &choice);
 	}while(errno == EINTR);
-	getchar();
 
 	if(choice == 'y' || choice == 'Y')
 		ret = removeAllJobs();
@@ -166,9 +165,9 @@ int removeJobs(void)
 		printf("Do you want to check all the jobs in the queue [Y/y/N/n]\n");
 		do{
 			errno = 0;
-			scanf("%c", &choice);
+			scanf(" %c", &choice);
 		}while(errno == EINTR);
-		getchar();
+		//getchar();
 		
 		if(choice == 'y' || choice == 'Y')
 		{
@@ -242,9 +241,9 @@ int changeJobPriority(void)
 	printf("Do you want to check all the jobs in the queue [Y/y/N/n]\n");
 	do{
 		errno = 0;
-		scanf("%c", &choice);
+		scanf(" %c", &choice);
 	}while(errno == EINTR);
-	getchar();
+	//getchar();
 
 	if(choice == 'y' || choice == 'Y')
 	{
@@ -299,7 +298,7 @@ int main(int argc, const char *argv[])
 		
 		do{	
 			errno = 0;
-			scanf("%c", &choice);
+			scanf(" %c", &choice);
 		}while(errno == EINTR);
 		
 		if(choice == 'e' || choice == 'E')
@@ -341,7 +340,7 @@ more:
 		do
 		{
 			errno = 0;
-			scanf("%c", &choice);
+			scanf(" %c", &choice);
 		}while(errno == EINTR);
 
 		if(choice == 'N' || choice == 'n')
@@ -350,8 +349,12 @@ more:
 			break;
 		}
 
-		else if(choice != 'Y' || choice != 'y')
-			goto more; 	
+		else if(choice != 'Y' && choice != 'y')
+		{	
+			printf("Error\n");
+			goto more;
+		} 
+			
 	}		
 
 	if(rand_flag == 1)
