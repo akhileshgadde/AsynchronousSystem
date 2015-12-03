@@ -8,4 +8,5 @@ struct JobInfo* createJobInfo(int, int, int, struct JobQInfo*);
 void* processEnDecryptReq(int);
 void* processListReq(int);
 void* processGetNumJobs(void);
+void do_random_work(void);
 #endif

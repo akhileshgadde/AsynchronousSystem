@@ -46,7 +46,12 @@ struct files
 	struct file *temp_filp;
 };
 
-//int open_files(char *infile, char *outfile, struct files *fp);
 
 void freeJob(struct kJob*);
+
+/* Netlink functions */
+static int pid;
+struct job_queue* getHighestPriorityJob(void);
+void netlink_send_msg(struct JobReturn *jret);
+
 #endif

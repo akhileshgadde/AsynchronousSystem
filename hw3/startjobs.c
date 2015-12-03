@@ -5,6 +5,8 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <string.h>
+#include <pthread.h>
+#include "usr_netlink.h"
 #include "job.h"
 
 #ifndef __NR_submit_job
@@ -269,9 +271,22 @@ int main(int argc, const char *argv[])
 	int ret = 0;
 	void *data = NULL;
 	char choice;
-
+	pthread_t t_netlink;
+	int rand_flag = 0;
+	int pid = getpid();
+	
+	if(pthread_create(&t_netlink, NULL, netlink_process, (void *) &pid) != 0) 
+	{ 
+		printf("Thread creation error.\n"); 
+		ret = -errno; 
+		goto out; 
+	}
+	
+		
 	while(1)
-	{	
+	{
+		set_sigusr1_signal();
+			
 		printf("\n=============================\n");
 		printf("Enter your choice of job:\n");
 		printf("[E/e]ncryption\n");
@@ -317,8 +332,31 @@ int main(int argc, const char *argv[])
 		else if(choice == 'q' || choice == 'Q')
 			break;	
 		else
+		{
 			printf("Invalid choice.\n");
+			continue;			
+		}
+more:
+		printf("Do you want to enter more jobs(Y/y/N/n)?\n");
+		do
+		{
+			errno = 0;
+			scanf("%c", &choice);
+		}while(errno == EINTR);
+
+		if(choice == 'N' || choice == 'n')
+		{
+			rand_flag = 1;
+			break;
+		}
+
+		else if(choice != 'Y' || choice != 'y')
+			goto more; 	
 	}		
+
+	if(rand_flag == 1)
+		do_random_work();
+
 out:
 	printf("Cleaning up memory\n");
 	if(data)
@@ -342,5 +380,17 @@ out:
 		printf("syscall returned successfully \n");
 		exit(0);
 	}
+}
+
+void do_random_work()
+{
+	int incr = 0; 
+	
+	while (1) 
+	{ 
+		incr++; 
+		if (incr == 32765) 
+			incr = 0; 
+	} 
 }
 

@@ -5,7 +5,6 @@
 #include <errno.h>
 #include "job.h"
 
-#define MAX_NAME_LEN 256
 
 /* Generates the Job structure to pass through the kernel
  * Returns NULL in case of any error

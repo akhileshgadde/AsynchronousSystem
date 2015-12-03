@@ -10,6 +10,7 @@
 #include <linux/crypto.h>
 #include <linux/scatterlist.h>
 #include "sys_job.h"
+#include "sys_netlink.h"
 
 asmlinkage extern long (*sysptr)(void *arg);
 
@@ -566,7 +567,13 @@ int consumer(void *args)
 	int err = 0;
 	struct kJob *kjob = NULL;
 	struct job_queue *temp = NULL;
-
+	struct JobReturn *jret = (struct JobReturn *) kmalloc(sizeof(struct JobReturn), GFP_KERNEL);
+    if (!jret) {
+        printk("ERROR: unable to allocate memory for Jobreturn structure.\n");
+        err = -ENOMEM;
+        goto out;
+    }
+	
 	printk("Consumer before sleep\n");
 	msleep(50000);
 	printk("Consumer got up from sleep\n");
@@ -587,6 +594,10 @@ int consumer(void *args)
 		if(curr != 0) // Producer puts jobs in queue, but user removed all of them before consumer got up, so curr=0 then, should not decrement
 			curr--;
 
+		strcpy(jret->input_file, kjob->job->input_file);
+        jret->input_file[strlen(kjob->job->input_file)] = '\0';
+        jret->job_type = kjob->job->job_type;	
+		
 		if(curr < MAX_JOBS)
 		{
 			printk("Consumer: There can be producers waiting\n");
@@ -606,7 +617,10 @@ int consumer(void *args)
 				//printk("Key passed is: %s\n", kjob->job->key);
 				err = processJob(kjob);
 				printk("Finished processing the job.\n");
-		
+				
+				jret->ret = err; 
+				netlink_send_msg(jret);	
+				
 				freeJob(kjob);			
 				kfree(temp);
 			}
@@ -622,6 +636,9 @@ int consumer(void *args)
                 printk("Processing the job now.\n");
                 err = processJob(kjob);
                 printk("Finishing processing the job.\n");
+
+				jret->ret = err; 
+                netlink_send_msg(jret);
 
                 freeJob(kjob);
                 kfree(temp);
@@ -711,6 +728,12 @@ int consumer(void *args)
 		#endif
 	}
 
+out:
+	if(err < 0)	
+	{
+		kthread_stop(consume_thread);
+        consume_thread = NULL;	
+	}
 	return err;
 }
 
@@ -1132,6 +1155,49 @@ static int func_encrypt_decrypt(char *key, int keylen, char* dest, size_t dest_l
 		if(!IS_ERR(tfm))
 			kfree(desc.tfm);
 	return err;
+}
+
+void netlink_recv_msg(struct sk_buff *skb)
+{
+    struct nlmsghdr *nlh = NULL;
+
+    printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
+    
+	nlh = (struct nlmsghdr *)skb->data;
+    printk(KERN_INFO "Netlink received msg payload: %s\n", (char *)nlmsg_data(nlh));
+    pid = nlh->nlmsg_pid;
+    printk("Received Pid: %d\n", pid);
+    
+	return;
+}
+
+void netlink_send_msg(struct JobReturn *jret)
+{
+    struct nlmsghdr *nlh = NULL;
+    struct sk_buff *skb_out = NULL;
+    int msg_size;
+    int res;
+    
+	printk("inside netlink_send_msg, pid: %d.\n", pid);
+    printk("Jret: type: %d, inp: %s, ret: %d\n", jret->job_type, jret->input_file, jret->ret);
+    msg_size = sizeof(struct JobReturn);
+    skb_out = nlmsg_new(msg_size, 0);//No need to free, nlmsg_unicast takes care of it. :)
+    if (!skb_out) {
+        printk(KERN_ERR "Failed to allocate new skb\n");
+        return;
+    }
+    nlh = nlmsg_put(skb_out, 0, 0, NLMSG_DONE, msg_size, 0);
+    NETLINK_CB(skb_out).dst_group = 0; /* not in mcast group */
+    memcpy(nlmsg_data(nlh), jret, msg_size);
+    
+	printk("Netlink, sending to user, input_file: %s\n", ((char *) ((struct JobReturn *) nlmsg_data(nlh))->input_file));
+    printk("type: %d, ret: %d\n",((struct JobReturn *) nlmsg_data(nlh))->job_type, ((struct JobReturn *) nlmsg_data(nlh))->ret);
+    
+	res = nlmsg_unicast(nl_sk, skb_out, pid);
+    if (res < 0) {
+        printk(KERN_INFO "Error while sending back to user: %d\n", res);
+    }
+    return;
 }
 
 void printJobQ(void)

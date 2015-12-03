@@ -1,6 +1,8 @@
 #ifndef __JOB_H__
 #define __JOB_H__
 
+#define MAX_NAME_LEN 256
+
 struct Job
 {
 	int job_flags; // To determine if it is job processing, 0 or queue processing, 1
@@ -35,4 +37,12 @@ struct JobInfo
 	struct JobQInfo *jobq;
 };
 
+struct JobReturn 
+{ 
+	int job_type; 
+	char input_file[MAX_NAME_LEN]; 
+	int ret; 
+}; 
+
+struct JobReturn job_ret;
 #endif
