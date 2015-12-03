@@ -124,7 +124,10 @@ int removeSingleJob(void)
 	int jobid;
 
 	printf("Enter the job id to remove:\n");
-	scanf("%d", &jobid);
+	do{
+		errno = 0;
+		scanf("%d", &jobid);
+	}while(errno == EINTR);
 	
 	jobinfo = createJobInfo(1, jobid, -1, NULL);
 	if(!jobinfo)
@@ -147,7 +150,10 @@ int removeJobs(void)
 	int ret = 0;
 
 	printf("Do you want to remove all jobs from the queue [Y/y/N/n]\n");
-	scanf("%c", &choice);
+	do{
+		errno = 0;
+		scanf("%c", &choice);
+	}while(errno == EINTR);
 	getchar();
 
 	if(choice == 'y' || choice == 'Y')
@@ -156,7 +162,10 @@ int removeJobs(void)
 	else if(choice == 'n' || choice == 'N')
 	{
 		printf("Do you want to check all the jobs in the queue [Y/y/N/n]\n");
-		scanf("%c", &choice);
+		do{
+			errno = 0;
+			scanf("%c", &choice);
+		}while(errno == EINTR);
 		getchar();
 		
 		if(choice == 'y' || choice == 'Y')
@@ -188,10 +197,18 @@ int __changeJobPriority(void)
     int jobid, priority;
 
 	printf("Enter the job id:\n");
-	scanf("%d", &jobid);
+	do
+	{
+		errno = 0;
+		scanf("%d", &jobid);
+	}while(errno == EINTR);
 
 	printf("Enter the job priority (Integer between 1 and 256)\n");
-	scanf("%d", &priority);
+	do
+    {
+        errno = 0;
+		scanf("%d", &priority);
+	}while(errno == EINTR);
 	
 	if(priority <= 0 || priority > 256)
 	{
@@ -221,7 +238,10 @@ int changeJobPriority(void)
     int ret = 0;
 
 	printf("Do you want to check all the jobs in the queue [Y/y/N/n]\n");
-	scanf("%c", &choice);
+	do{
+		errno = 0;
+		scanf("%c", &choice);
+	}while(errno == EINTR);
 	getchar();
 
 	if(choice == 'y' || choice == 'Y')
@@ -250,52 +270,55 @@ int main(int argc, const char *argv[])
 	void *data = NULL;
 	char choice;
 
-	printf("=============================\n");
-	printf("Enter your choice of job:\n");
-	printf("[E/e]ncryption\n");
-	printf("[D/d]ecrytion\n");
-	printf("[R/r]emove a job\n");
-	printf("[L/l]ist jobs.\n");
-	printf("[C/c]hange priority of a job.\n");
-	printf("[Q/q]uit\n");
-	printf("=============================\n");
+	while(1)
+	{	
+		printf("\n=============================\n");
+		printf("Enter your choice of job:\n");
+		printf("[E/e]ncryption\n");
+		printf("[D/d]ecrytion\n");
+		printf("[R/r]emove a job\n");
+		printf("[L/l]ist jobs.\n");
+		printf("[C/c]hange priority of a job.\n");
+		printf("[Q/q]uit\n");
+		printf("=============================\n");
 		
-	scanf("%c", &choice);
-	getchar();
-	
-	if(choice == 'e' || choice == 'E')
-	{
-		data = processEnDecryptReq(0);
-		if(!data)
-			goto out;	
+		do{	
+			errno = 0;
+			scanf("%c", &choice);
+		}while(errno == EINTR);
 		
-		ret = syscall(__NR_submit_job, data);
-	}
-	
-	else if(choice == 'd' || choice == 'D')
-	{
-		data = processEnDecryptReq(1);
-		if(!data)
-			goto out;
-
-		ret = syscall(__NR_submit_job, data);
-	}
-
-	else if(choice == 'r' || choice == 'R') /*** need to handle the case when multiple job ids can be removed ***/ 
-		ret = removeJobs();
-
-	else if(choice == 'l' || choice == 'L')
-		ret = listJobs();		
-
-	else if(choice == 'c' || choice == 'C')
-		ret = changeJobPriority();
-
-	else if(choice == 'q' || choice == 'Q')
-		goto out;		
-
-	else
-		printf("Invalid choice.\n");
+		if(choice == 'e' || choice == 'E')
+		{
+			data = processEnDecryptReq(0);
+			if(!data)
+				goto out;	
+			
+			ret = syscall(__NR_submit_job, data);
+		}
 		
+		else if(choice == 'd' || choice == 'D')
+		{
+			data = processEnDecryptReq(1);
+			if(!data)
+				goto out;
+
+			ret = syscall(__NR_submit_job, data);
+		}
+
+		else if(choice == 'r' || choice == 'R') /*** need to handle the case when multiple job ids can be removed ***/ 
+			ret = removeJobs();
+
+		else if(choice == 'l' || choice == 'L')
+			ret = listJobs();		
+
+		else if(choice == 'c' || choice == 'C')
+			ret = changeJobPriority();
+
+		else if(choice == 'q' || choice == 'Q')
+			break;	
+		else
+			printf("Invalid choice.\n");
+	}		
 out:
 	printf("Cleaning up memory\n");
 	if(data)

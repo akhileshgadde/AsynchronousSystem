@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <openssl/md5.h>
+#include <errno.h>
 #include "job.h"
 
 #define MAX_NAME_LEN 256
@@ -96,15 +97,28 @@ struct JobInfo* createJobInfo(int flags, int job_id, int priority, struct JobQIn
 static void getInputBuffers(char inputfile[], char outputfile[], char key[])
 {
 	printf("Enter input file:\n");
-	scanf("%s", inputfile); 
+	
+	do{
+		errno = 0;
+		scanf("%s", inputfile);
+	}while(errno == EINTR);
+ 
 	inputfile[strlen(inputfile)] = '\0';
 	
 	printf("Enter output file:\n");
-	scanf("%s", outputfile);
+	do{
+		errno = 0;
+		scanf("%s", outputfile);
+	}while(errno == EINTR);
+	
 	outputfile[strlen(outputfile)] = '\0';
 	
 	printf("Enter a key:\n");
-	scanf("%s", key);
+	do{
+		errno = 0;
+		scanf("%s", key);
+	}while(errno == EINTR);
+	
 	key[strlen(key)] = '\0';
 }
 
@@ -117,7 +131,10 @@ void* processEnDecryptReq(int flags)
 	getInputBuffers(inputfile, outputfile, key);
 
 	printf("Enter job priority (Integer between 0 and 256)\n");
-	scanf("%d", &priority);
+	do{
+		errno = 0;
+		scanf("%d", &priority);
+	}while(errno == EINTR);
 	
 	if(priority <=0 || priority > 256)
 	{
