@@ -21,16 +21,17 @@ struct mutex mut_lock; // Mutex that protects the producer and consumer job queu
 static struct task_struct *consume_thread = NULL; // Consumer thread 
 
 static int p_throttle_flag = 0;
-//static int c_wait_flag = 0;
 
 struct job_queue jobs_list;
 
 static DECLARE_WAIT_QUEUE_HEAD(producer_waitq);
-//static DECLARE_WAIT_QUEUE_HEAD(consumer_waitq);
 
 /** Should remove this below later : for debugging **/
 void printJobQ(void);
 
+/* submit_job: Called by the system call
+   Returns 0 on success or errno on failure to the user
+*/
 asmlinkage long submit_job(void *args)
 {
 	int ret, err = 0;
@@ -45,7 +46,7 @@ asmlinkage long submit_job(void *args)
 		goto out;
 	}
 
-	printk("Before calling the syscall\n");	
+	//printk("Before calling the syscall\n");	
 	ret = copy_from_user(&job_flags, args, sizeof(int));
 	if(ret != 0)
 	{
@@ -84,6 +85,10 @@ asmlinkage long submit_job(void *args)
 		return err;
 }
 
+/* copy_job_from_user: To copy Job details from the user land
+   Return struct kJob pointer on success 
+   On failure, returns error pointer
+*/
 struct kJob* copy_job_from_user(void *args)
 {
 	int err = 0;
@@ -91,7 +96,7 @@ struct kJob* copy_job_from_user(void *args)
 	struct kJob *kjob = NULL;
 	struct filename *uinp_file = NULL, *uout_file = NULL;
 
-	printk("In copy job from user\n");	
+	//printk("In copy job from user\n");	
 	job = (struct Job*) kmalloc(sizeof(struct Job), GFP_KERNEL);
 	if(!job)
 	{
@@ -202,14 +207,15 @@ out:
 	return kjob;
 }
 
+/* freeJob: Will deallocate the memory for the kJob in kernel */
 void freeJob(struct kJob *kjob)
 {
 	if(kjob)
 	{
-		printk("Freeing memory for kjob\n");
+		//printk("Freeing memory for kjob\n");
 		if(kjob->job)
 		{
-			printk("Freeing memory for kjob->job\n");
+			//printk("Freeing memory for kjob->job\n");
 			if(kjob->job->input_file)
 				kfree(kjob->job->input_file);
 			if(kjob->job->output_file)
@@ -225,13 +231,17 @@ void freeJob(struct kJob *kjob)
 	
 }
 
+/* copy_jobinfo_from_user: To copy JobInfo details from the user land
+   Return sruct JobInfo pointer on success 
+   On failure, returns error pointer
+*/
 struct JobInfo* copy_jobinfo_from_user(void *args)
 {
 	int err = 0;
 	struct JobInfo *jobinfo = NULL;
 	struct JobQInfo *jobq = NULL;
 
-	printk("In copy job info from user\n");	
+	//printk("In copy job info from user\n");	
 	jobinfo = (struct JobInfo*) kmalloc(sizeof(struct JobInfo), GFP_KERNEL);
 	if(!jobinfo)
 	{
@@ -280,6 +290,9 @@ out:
 	return jobinfo;
 }
 
+/* getJobsFromQueue: Copies all the jobs in the job queue to the user land
+   Returns 0 on success and errno on failure
+*/
 int getJobsFromQueue(struct JobInfo *jobinfo)
 {
 	int jobcnt;
@@ -291,7 +304,7 @@ int getJobsFromQueue(struct JobInfo *jobinfo)
 	int i = 0;
 	int maxcnt;
 
-	printk("In copy jobs from queue\n");	
+	//printk("In copy jobs from queue\n");	
 	jobcnt = jobinfo->jobq->job_cnt;
 	
 	mutex_lock(&mut_lock);	
@@ -322,7 +335,8 @@ int getJobsFromQueue(struct JobInfo *jobinfo)
             goto out;
         }
 		
-		kfree(jobdesc);
+		if(jobdesc)
+			kfree(jobdesc);
 		
 		i++;
 		
@@ -343,6 +357,10 @@ out:
 	return err;
 }
 
+/* findJobInQueue: Finds the job based on the job id in the job queue
+   Returns the job queue node on success
+   Returns NULL if the job is not present in the queue
+*/
 struct job_queue* findJobInQueue(int jobid)
 {
     struct list_head *pos;
@@ -350,7 +368,7 @@ struct job_queue* findJobInQueue(int jobid)
     struct kJob *kjob;
     struct job_queue *ret = NULL;
 
-	printk("In find jobs in the queue\n");
+	//printk("In find jobs in the queue\n");
     list_for_each(pos, &(jobs_list.list))
     {
         temp = list_entry(pos, struct job_queue, list);
@@ -367,12 +385,15 @@ struct job_queue* findJobInQueue(int jobid)
     return ret;
 }
 
+/* removeAllJobs: Removes all the jobs from the queue
+   Returns 0
+*/
 int removeAllJobs(void)
 {
 	struct list_head *pos, *temp_node;
     struct job_queue *temp = NULL;
 
-	printk("In remove all jobs from the queue\n");
+	//printk("In remove all jobs from the queue\n");
 	mutex_lock(&mut_lock);
 	
 	list_for_each_safe(pos, temp_node, &(jobs_list.list))
@@ -388,12 +409,16 @@ int removeAllJobs(void)
 	return 0;		
 }
 
+/* removeSingleJob: Finds job in the queue and removes it
+   Returns 0 on success
+   Return -ENOENT if the job is not present in the queue
+*/
 int removeSingleJob(int jobid)
 {
 	int ret = 0;
 	struct job_queue *job = NULL;
 
-	printk("In remove single job from the queue\n");	
+	//printk("In remove single job from the queue\n");	
 	mutex_lock(&mut_lock);
 	job = findJobInQueue(jobid);
 	if(!job)
@@ -413,13 +438,17 @@ out:
 	return ret;
 }
 
+/* changeJobPriorityInQueue: Finds job in the queue and changes it priority
+   Returns 0 on success
+   Return -ENOENT if the job is not present in the queue
+*/
 int changeJobPriorityInQueue(int jobid, int priority)
 {
 	int ret = 0;
     struct job_queue *job = NULL;
 	struct kJob *temp;
 
-	printk("In change job priority\n");
+	//printk("In change job priority\n");
     mutex_lock(&mut_lock);
     job = findJobInQueue(jobid);
     if(!job)
@@ -437,12 +466,15 @@ out:
 	return ret;	
 }
 
+/* processJobQueueRequest: Handles job queue processing
+   Returns 0 on success and errno on failure
+*/
 int processJobQueueRequest(struct JobInfo *jobinfo)
 {
 	int flags;
 	int ret = 0;
 
-	printk("In process job queue request\n");
+	//printk("In process job queue request\n");
 	flags = jobinfo->flags;
 
 	if(flags == 0)
@@ -480,6 +512,10 @@ int processJobQueueRequest(struct JobInfo *jobinfo)
 	return ret;
 }
 
+/* sys_submitjob: Handles both job processing and job queue processing
+   For job processing, creates producer threads
+   Returns 0 on success, errno on failure
+*/
 int sys_submitjob(void* args, int len) // use argslen to check the buffers passed by user
 {
 	int err = 0;
@@ -514,21 +550,24 @@ out:
 	return err;
 }
 
+/* producer: Thread which puts the job in the queue
+   Returns 0 on success or errno on failure
+*/
 int producer(void *arg)
 {
 	int err = 0;
-	struct job_queue *temp;
+	struct job_queue *temp = NULL;
 	
 	printk("===Producer===\n");
 	mutex_lock(&mut_lock);
-	printk("Curr in producer: %d\n", curr);
+	//printk("Curr in producer: %d\n", curr);
 	if((curr + 1) > MAX_JOBS)
 	{
-		printk("Producer waiting...More number of jobs\n");
+		printk("Producer waiting...More number of jobs in the queue\n");
 		
 		mutex_unlock(&mut_lock);
 		wait_event_interruptible(producer_waitq, p_throttle_flag != 0);
-		printk("Producer: woken up after waiting\n");	
+		printk("Producer: woken up from the wait q after\n");	
 		p_throttle_flag = 0;
 		mutex_lock(&mut_lock);
 	}
@@ -545,7 +584,7 @@ int producer(void *arg)
 	temp->work = arg;
 	
 	// Adding the work to the job queue
-	printk("Adding to the work queue.\n");
+	printk("Adding job to the work queue.\n");
 	list_add_tail(&(temp->list), &(jobs_list.list));
 	printJobQ();
 	curr++;
@@ -558,10 +597,13 @@ int producer(void *arg)
 		 	
 out:
 	mutex_unlock(&mut_lock);
-	printk("Exiting from the producer.\n");
+	//printk("Exiting from the producer.\n");
 	return err;
 }
 
+/* consumer: Picks up the job from the queue and processes it
+   Returns the status of the job to the user via netlink sockets
+*/ 
 int consumer(void *args)
 {
 	int err = 0;
@@ -574,9 +616,9 @@ int consumer(void *args)
         goto out;
     }
 	
-	printk("Consumer before sleep\n");
-	msleep(50000);
-	printk("Consumer got up from sleep\n");
+	//printk("Consumer before sleep\n");
+	//msleep(70000);
+	//printk("Consumer got up from sleep\n");
 	while(!kthread_should_stop())
 	{
 		printk("===Consumer===\n");
@@ -586,7 +628,7 @@ int consumer(void *args)
 		if(temp != NULL) // Handling the case where all the jobs in the queue can be removed before the consumer woke up
 		{
 			kjob = (struct kJob*) temp->work;
-			printk("Consumer: Job details extracted %d %d %s %s\n", kjob->job_id, kjob->job->priority, kjob->job->input_file, kjob->job->output_file );	
+			printk("Consumer: Job details extracted Job ID: %d Job Type: %d Job Prioriy: %d Input file: %s Output file: %s\n", kjob->job_id, kjob->job->job_type, kjob->job->priority, kjob->job->input_file, kjob->job->output_file );	
 		
 			list_del(&(temp->list));
 
@@ -598,27 +640,27 @@ int consumer(void *args)
 		if(curr != 0) // Producer puts jobs in queue, but user removed all of them before consumer got up, so curr=0 then, should not decrement
 			curr--;
 
-		
-				
 		if(curr < MAX_JOBS)
 		{
-			printk("Consumer: There can be producers waiting\n");
+			//printk("Consumer: There can be producers waiting\n");
             p_throttle_flag = 1;
 			wake_up_interruptible(&producer_waitq);
 		}
+	
+		set_current_state(TASK_INTERRUPTIBLE);
 		
 		if(curr == 0)
 		{
 			printk("Consumer: No jobs in the queue, putting into wait state\n");
 			set_current_state(TASK_INTERRUPTIBLE);
-			printk("State of consumer when put to sleep: %ld\n", consume_thread->state);	
+			//printk("State of consumer when put to sleep: %ld\n", consume_thread->state);	
 			mutex_unlock(&mut_lock);
 			if(temp)
 			{
-				printk("Processing the job now.\n");
+				//printk("Processing the job now.\n");
 				//printk("Key passed is: %s\n", kjob->job->key);
 				err = processJob(kjob);
-				printk("Finished processing the job.\n");
+				printk("Consumer finished processing the job.\n");
 				
 				jret->ret = err; 
 				netlink_send_msg(jret);	
@@ -627,17 +669,18 @@ int consumer(void *args)
 				kfree(temp);
 			}
 			schedule();
-			printk("Consumer is woken up by the producer now: state is: %ld\n", consume_thread->state);
+			printk("Consumer is woken up by the producer\n");
 		}
 		else
 		{
-			printk("Consumer: There are more jobs in the queue\n");
+			set_current_state(TASK_RUNNING);
+			//printk("Consumer: There are more jobs in the queue\n");
 			mutex_unlock(&mut_lock);
 			if(temp)
             {
-                printk("Processing the job now.\n");
+                //printk("Processing the job now.\n");
                 err = processJob(kjob);
-                printk("Finishing processing the job.\n");
+                printk("Consumer finished processing the job.\n");
 
 				jret->ret = err; 
                 netlink_send_msg(jret);
@@ -647,99 +690,15 @@ int consumer(void *args)
             }
 		}	
 		
-		#if 0	
-		if(curr == 0)
-		{
-			printk("Putting consumer to wait.\n");
-			set_current_state(TASK_INTERRUPTIBLE);
-			mutex_unlock(&mut_lock);
-			printk("Consumer is now waiting\n");
-			if(temp)
-			{
-				printk("Processing the job now.\n");
-				err = processJob(kjob);
-				printk("Finishing processing the job.\n");
-		
-				freeJob(kjob);			
-		
-				kfree(temp);
-				temp = NULL;
-			}
-			schedule();
-			printk("Consumer got up\n");
-		}
-		else
-		{
-			printk("Consumer: there are jobs in the queue\n");
-			mutex_unlock(&mut_lock);
-            printk("Consumer is now waiting\n");
-            if(temp)
-            {
-                printk("Processing the job now.\n");
-                err = processJob(kjob);
-                printk("Finishing processing the job.\n");
-
-                freeJob(kjob);
-
-                kfree(temp);
-                temp = NULL;
-            }
-		}
-	
-		//set_current_state(TASK_RUNNING);
-		//printk("Consumer's state is set to running\n");
-			
-		/* method 2 */	
-		if(curr == 0)
-		{
-			mutex_unlock(&mut_lock);
-
-			printk("Processing the job now.\n");	
-			err = processJob(kjob);
-			printk("Finished processing the job.\n");
-				
-			if(temp)
-			{
-				kfree(temp);
-				temp = NULL;
-			}
-			
-			printk("Putting consumer to sleep\n");
-			set_current_state(TASK_INTERRUPTIBLE);
-			schedule();
-		// During processing; (curr value is already zero now);
-		// Since the mutex is unlocked; producer gets the lock; puts in the queue and wakes up the consumer[ since the consumer is already up,			  no issue]
-		// after processing the job, the consumer will go to sleep and yield to the scheduler
-		// since the curr value is greater than zero, the producer will not be able to wake it up at all as the consumer is in sleep
-		}	
-		else
-		{
-			printk("Consumer: Curr is not equal to 0\n");
-			mutex_unlock(&mut_lock);
-
-			printk("Processing the job now.\n");	
-			err = processJob(kjob);
-			printk("Finished processing the job.\n");
-		
-			if(temp)
-			{
-				kfree(temp);
-				temp = NULL;
-			}
-        }
-		#endif
 	}
 
 out:
-	if(err < 0)	
-	{
-		kthread_stop(consume_thread);
-        consume_thread = NULL;	
-	}
 	return err;
 }
 
-/* Limitation: max priority that can be assigned is 256. Put a condition in user code accordingly */
+/* getHighestPriorityJob: Traverses the list and returns the highest priority job
+   Returns NULL if there are no jobs present in the job queue 
+*/
 struct job_queue* getHighestPriorityJob(void)
 {
 	struct list_head *pos;
@@ -764,12 +723,13 @@ struct job_queue* getHighestPriorityJob(void)
 	return ret; 		
 }
 
+/* processJob: Encrypts or decrypts the file*/
 int processJob(struct kJob* kjob)
 {
 	int ret = 0;
 	int jobtype;
 
-	printk("In process jobs\n");	
+	printk("Consumer processing the job\n");	
 	jobtype = kjob->job->job_type;
 	
 	if(jobtype == 0 || jobtype == 1)
@@ -1159,6 +1119,11 @@ static int func_encrypt_decrypt(char *key, int keylen, char* dest, size_t dest_l
 	return err;
 }
 
+/* Receives the first message from the user application 
+*  on the netlink socket and records the process-id of 
+*  the sending process in a global pid variable. 
+*  It is used to send message later to the correct process.
+*/
 void netlink_recv_msg(struct sk_buff *skb)
 {
     struct nlmsghdr *nlh = NULL;
@@ -1168,11 +1133,12 @@ void netlink_recv_msg(struct sk_buff *skb)
 	nlh = (struct nlmsghdr *)skb->data;
     printk(KERN_INFO "Netlink received msg payload: %s\n", (char *)nlmsg_data(nlh));
     pid = nlh->nlmsg_pid;
-    printk("Received Pid: %d\n", pid);
-    
 	return;
 }
 
+/* To send the job processing status on the netlink socket to the user application.
+*  sends job_type, input_file, job processing status
+*/
 void netlink_send_msg(struct JobReturn *jret)
 {
     struct nlmsghdr *nlh = NULL;
@@ -1180,8 +1146,6 @@ void netlink_send_msg(struct JobReturn *jret)
     int msg_size;
     int res;
     
-	printk("inside netlink_send_msg, pid: %d.\n", pid);
-    printk("Jret: type: %d, inp: %s, ret: %d\n", jret->job_type, jret->input_file, jret->ret);
     msg_size = sizeof(struct JobReturn);
     skb_out = nlmsg_new(msg_size, 0);//No need to free, nlmsg_unicast takes care of it. :)
     if (!skb_out) {
@@ -1192,8 +1156,8 @@ void netlink_send_msg(struct JobReturn *jret)
     NETLINK_CB(skb_out).dst_group = 0; /* not in mcast group */
     memcpy(nlmsg_data(nlh), jret, msg_size);
     
-	printk("Netlink, sending to user, input_file: %s\n", ((char *) ((struct JobReturn *) nlmsg_data(nlh))->input_file));
-    printk("type: %d, ret: %d\n",((struct JobReturn *) nlmsg_data(nlh))->job_type, ((struct JobReturn *) nlmsg_data(nlh))->ret);
+	printk("INFO: Sending Job processing status to user on netlink socket \
+			for file: %s\n", ((char *) ((struct JobReturn *) nlmsg_data(nlh))->input_file));
     
 	res = nlmsg_unicast(nl_sk, skb_out, pid);
     if (res < 0) {
@@ -1214,7 +1178,7 @@ void printJobQ(void)
 		
 		kjob = (struct kJob*) temp->work;
 
-		printk("Job details in the queue; %d %d %s %s\n", kjob->job_id, kjob->job->priority, kjob->job->input_file, kjob->job->output_file);
+		printk("Job details in the queue; Job ID: %d Job Type: %d Priority: %d Input File: %s Output File:%s\n", kjob->job_id, kjob->job->job_type, kjob->job->priority, kjob->job->input_file, kjob->job->output_file);
 				
 	}
 }
@@ -1236,7 +1200,7 @@ static int __init init_sys_submitjob(void)
 	mutex_init(&mut_lock);
        
 	/* Net link socket initialization */
-    printk("INIT: Creating netlink socket.\n");
+    //printk("INIT: Creating netlink socket.\n");
     nl_sk = netlink_kernel_create(&init_net, NETLINK_USER, &cfg);
     if (!nl_sk) {
         printk(KERN_ERR "%s: Netlink socket creation failed.\n", __FUNCTION__);
@@ -1259,6 +1223,7 @@ out:
 static void  __exit exit_sys_submitjob(void)
 {
 	/** mutex destroy ?? **/
+	//printk("Exiting module.\n");
 	if (sysptr != NULL)
 	{
 		if(consume_thread)
@@ -1270,8 +1235,10 @@ static void  __exit exit_sys_submitjob(void)
 	}
 	
 	/* Releasing netlink socket */
+	//printk("releasing netlink socket.\n");
 	if (nl_sk)
 		netlink_kernel_release(nl_sk);
+	
 	printk("removed sys_submitjob module\n");
 }	
 

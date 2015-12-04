@@ -50,7 +50,7 @@ struct Job* createJob(int type, const char* infile, const char* outfile, const c
 	job->key = (char*) malloc(MD5_DIGEST_LENGTH+1);
 	if(!job->key)
 	{
-		printf("Error while allocating memory for the key\n");
+		printf("ERROR: Error while allocating memory for the key\n");
         return NULL;
 	}
 	
@@ -61,13 +61,6 @@ struct Job* createJob(int type, const char* infile, const char* outfile, const c
 	job->keylen = MD5_DIGEST_LENGTH;
 	
 	job->priority = priority;
-
-	#if 0
-	printf("Job details are:\n");
-	printf("Input file: %s\n", job->input_file);
-	printf("Output file: %s\n", job->output_file);
-	printf("Key: %s\n", job->key);
-	#endif
 
 	return job;  
 }
@@ -95,50 +88,77 @@ struct JobInfo* createJobInfo(int flags, int job_id, int priority, struct JobQIn
 /* Gets char buffers from the user */
 static void getInputBuffers(char inputfile[], char outputfile[], char key[])
 {
+inp_back:
 	printf("Enter input file:\n");
 	
 	do{
 		errno = 0;
 		scanf("%s", inputfile);
 	}while(errno == EINTR);
- 
-	inputfile[strlen(inputfile)] = '\0';
 	
+	if (strlen(inputfile) > 256) {
+		printf("ERROR: Input file length > 256.\n");
+		goto inp_back;
+	}
+	
+	inputfile[strlen(inputfile)] = '\0';
+
+out_back:	
 	printf("Enter output file:\n");
 	do{
 		errno = 0;
 		scanf("%s", outputfile);
+		if (errno == EINTR)
+            printf("INTERRUPT: Please enter the input again.\n");
 	}while(errno == EINTR);
 	
+	 if (strlen(outputfile) > 256) {
+        printf("ERROR: Output file length > 256.\n");
+        goto out_back;
+    }
+
 	outputfile[strlen(outputfile)] = '\0';
 	
+key_back:
 	printf("Enter a key:\n");
 	do{
 		errno = 0;
 		scanf("%s", key);
+		if (errno == EINTR)
+			printf("INTERRUPT: Please enter the input again.\n");
 	}while(errno == EINTR);
+	
+	 if (strlen(key) > 256) {
+        printf("ERROR: Key length > 256.\n");
+        goto key_back;
+    }
 	
 	key[strlen(key)] = '\0';
 }
 
+/* Processes the user input for encryption and decryption */
 void* processEnDecryptReq(int flags)
 {
-	char inputfile[MAX_NAME_LEN], outputfile[MAX_NAME_LEN], key[MAX_NAME_LEN];
+	char inputfile[MAX_NAME_LEN + 10], outputfile[MAX_NAME_LEN + 10], key[MAX_NAME_LEN + 10];
 	struct Job *job = NULL;
 	int priority;
 
 	getInputBuffers(inputfile, outputfile, key);
 
+back:
 	printf("Enter job priority (Integer between 0 and 256)\n");
 	do{
 		errno = 0;
 		scanf("%d", &priority);
+		if (errno == EINTR)
+		    printf("INTERRUPT: Please enter the input again.\n");
+
 	}while(errno == EINTR);
 	
 	if(priority <=0 || priority > 256)
 	{
-		printf("Invalid priority\n");
-		return NULL;
+		printf("ERROR: Incorrect priority. Please enter the correct priority in range [1-255].\n");
+		goto back;
 	}
 
 	job = createJob(flags, inputfile, outputfile, key, priority);

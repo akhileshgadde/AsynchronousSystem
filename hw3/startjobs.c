@@ -27,7 +27,7 @@ int listJobs(void)
 	}
 	
 	jobct = syscall(__NR_submit_job, data);
-	printf("Size of list returned from the kernel: %d\n", jobct);
+	//printf("Size of list returned from the kernel: %d\n", jobct);
 	
 	if(jobct < 0)
 	{
@@ -78,7 +78,7 @@ int listJobs(void)
 out:	
 	if(data) // Need to remove the array that is allocated too
 	{
-		printf("Free data\n");
+		//printf("Free data\n");
 		if(((struct JobInfo*) data)->jobq)
 		{
 			i = 0;
@@ -129,6 +129,8 @@ int removeSingleJob(void)
 	do{
 		errno = 0;
 		scanf("%d", &jobid);
+		if (errno == EINTR)
+            printf("INTERRUPT: Please enter the input again.\n");
 	}while(errno == EINTR);
 	
 	jobinfo = createJobInfo(1, jobid, -1, NULL);
@@ -149,25 +151,44 @@ out:
 int removeJobs(void)
 {
 	char choice;
-	int ret = 0;
-
+	int ret = 0;	
+	char inp_str[MAX_NAME_LEN];
+	
+back:
 	printf("Do you want to remove all jobs from the queue [Y/y/N/n]\n");
 	do{
 		errno = 0;
-		scanf(" %c", &choice);
+		scanf("%s", inp_str);
+		if (errno == EINTR)
+            printf("INTERRUPT: Please enter the input again.\n");
 	}while(errno == EINTR);
-
+	
+	if (strlen(inp_str) > 1)
+    {
+            printf("ERROR: Invalid choice. Enter the single letter choice correctly.\n");
+            goto back;
+    }
+	choice = inp_str[0];
 	if(choice == 'y' || choice == 'Y')
 		ret = removeAllJobs();
 		
 	else if(choice == 'n' || choice == 'N')
 	{
-		printf("Do you want to check all the jobs in the queue [Y/y/N/n]\n");
+list_jobs:
+		printf("Do you want to list all the jobs in the queue [Y/y/N/n]\n");
 		do{
 			errno = 0;
-			scanf(" %c", &choice);
+			scanf("%s", inp_str);
+			if (errno == EINTR)
+				printf("INTERRUPT: Please enter the input again.\n");
 		}while(errno == EINTR);
-		//getchar();
+		
+		if (strlen(inp_str) > 1)
+        {
+            printf("ERROR: Invalid choice. Enter the single letter choice correctly.\n");
+            goto list_jobs;
+        }
+		choice = inp_str[0];
 		
 		if(choice == 'y' || choice == 'Y')
 		{
@@ -182,10 +203,10 @@ int removeJobs(void)
 			ret = removeSingleJob();
 	
 		else
-			printf("Invalid choice.\n");
+			printf("ERROR: Invalid choice.\n");
 	}
 	else
-		printf("Invalid choice.\n");
+		printf("ERROR: Invalid choice.\n");
 
 out:
 	return ret;
@@ -213,7 +234,7 @@ int __changeJobPriority(void)
 	
 	if(priority <= 0 || priority > 256)
 	{
-		printf("Invalid priority\n");
+		printf("ERROR: Invalid priority\n");
 		ret = -EINVAL;
 		goto out;
 	}
@@ -237,14 +258,24 @@ int changeJobPriority(void)
 {
 	char choice;
     int ret = 0;
+	char inp_str[MAX_NAME_LEN];
 
+back:
 	printf("Do you want to check all the jobs in the queue [Y/y/N/n]\n");
 	do{
 		errno = 0;
-		scanf(" %c", &choice);
+		scanf("%s", inp_str);
+		if (errno == EINTR)
+	        printf("INTERRUPT: Please enter the input again.\n");
 	}while(errno == EINTR);
-	//getchar();
-
+	
+	if (strlen(inp_str) > 1)
+    {
+        printf("ERROR: Invalid choice. Enter the single letter choice correctly.\n");
+        goto back;
+    }
+    choice = inp_str[0];
+		
 	if(choice == 'y' || choice == 'Y')
 	{
 		ret = listJobs();
@@ -258,7 +289,7 @@ int changeJobPriority(void)
         ret = __changeJobPriority();
 
 	else
-		printf("Invalid choice.\n");
+		printf("ERROR: Invalid choice.\n");
 
 out:
 	return ret;
@@ -269,6 +300,7 @@ int main(int argc, const char *argv[])
 {
 	int ret = 0;
 	void *data = NULL;
+	char inp_str[MAX_NAME_LEN];
 	char choice;
 	pthread_t t_netlink;
 	int rand_flag = 0;
@@ -276,7 +308,7 @@ int main(int argc, const char *argv[])
 	
 	if(pthread_create(&t_netlink, NULL, netlink_process, (void *) &pid) != 0) 
 	{ 
-		printf("Thread creation error.\n"); 
+		printf("ERROR: Thread creation error.\n"); 
 		ret = -errno; 
 		goto out; 
 	}
@@ -286,21 +318,29 @@ int main(int argc, const char *argv[])
 	{
 		set_sigusr1_signal();
 			
-		printf("\n=============================\n");
+		printf("=============================\n");
 		printf("Enter your choice of job:\n");
-		printf("[E/e]ncryption\n");
-		printf("[D/d]ecrytion\n");
-		printf("[R/r]emove a job\n");
-		printf("[L/l]ist jobs.\n");
-		printf("[C/c]hange priority of a job.\n");
-		printf("[Q/q]uit\n");
+		printf("[E/e] for Encryption\n");
+		printf("[D/d] for Decrytion\n");
+		printf("[R/r] to Remove job(s)\n");
+		printf("[L/l] to List jobs.\n");
+		printf("[C/c] to Change priority of a job.\n");
+		printf("[Q/q] to Quit\n");
 		printf("=============================\n");
 		
 		do{	
 			errno = 0;
-			scanf(" %c", &choice);
+			scanf("%s", inp_str);
+			if (errno == EINTR)
+				printf("INTERRUPT: Please enter the input again.\n");
 		}while(errno == EINTR);
 		
+		if (strlen(inp_str) > 1)
+		{
+			printf("ERROR:Invalid choice. Enter the single letter choice correctly.\n");
+			continue;
+		}
+		choice = inp_str[0];
 		if(choice == 'e' || choice == 'E')
 		{
 			data = processEnDecryptReq(0);
@@ -332,7 +372,7 @@ int main(int argc, const char *argv[])
 			break;	
 		else
 		{
-			printf("Invalid choice.\n");
+			printf("ERROR: Invalid choice.\n");
 			continue;			
 		}
 more:
@@ -340,9 +380,19 @@ more:
 		do
 		{
 			errno = 0;
-			scanf(" %c", &choice);
-		}while(errno == EINTR);
+			scanf("%s", inp_str);
+			if (errno == EINTR)
+				printf("INTERRUPT: Please enter the input again.\n");
 
+		}while(errno == EINTR);
+		
+		if (strlen(inp_str) > 1)
+        {
+            printf("ERROR: Invalid choice. Enter the single letter choice correctly.\n");
+            goto more;
+        }
+		choice = inp_str[0];
+		
 		if(choice == 'N' || choice == 'n')
 		{
 			rand_flag = 1;
@@ -351,7 +401,7 @@ more:
 
 		else if(choice != 'Y' && choice != 'y')
 		{	
-			printf("Error\n");
+			printf("ERROR: Incorrect choice.\n");
 			goto more;
 		} 
 			
@@ -361,7 +411,7 @@ more:
 		do_random_work();
 
 out:
-	printf("Cleaning up memory\n");
+	//printf("Cleaning up memory\n");
 	if(data)
 	{
 		if(((struct Job*) data)->input_file)
@@ -388,7 +438,8 @@ out:
 void do_random_work()
 {
 	int incr = 0; 
-	
+	printf("User selected not to add any more jobs.\n");
+	printf("Doing work - incrementing a random variale in an infinite loop.\n");
 	while (1) 
 	{ 
 		incr++; 
