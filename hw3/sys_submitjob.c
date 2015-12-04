@@ -617,7 +617,7 @@ int consumer(void *args)
     }
 	
 	//printk("Consumer before sleep\n");
-	//msleep(70000);
+	msleep(40000);
 	//printk("Consumer got up from sleep\n");
 	while(!kthread_should_stop())
 	{
