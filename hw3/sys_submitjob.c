@@ -21,10 +21,11 @@ struct mutex mut_lock; // Mutex that protects the producer and consumer job queu
 static struct task_struct *consume_thread = NULL; // Consumer thread 
 
 static int p_throttle_flag = 0;
-
+static int c_sleep_flag = 0;
 struct job_queue jobs_list;
 
 static DECLARE_WAIT_QUEUE_HEAD(producer_waitq);
+static DECLARE_WAIT_QUEUE_HEAD(consumer_waitq);
 
 /** Should remove this below later : for debugging **/
 void printJobQ(void);
@@ -592,7 +593,9 @@ int producer(void *arg)
 	if(curr == 1)
 	{
 		printk("First job in the queue.\n");
-		wake_up_process(consume_thread); 
+		c_sleep_flag = 1;
+        wake_up_interruptible(&consumer_waitq);
+		//wake_up_process(consume_thread); 
 	}
 		 	
 out:
@@ -616,9 +619,9 @@ int consumer(void *args)
         goto out;
     }
 	
-	//printk("Consumer before sleep\n");
+	printk("Consumer before sleep\n");
 	msleep(40000);
-	//printk("Consumer got up from sleep\n");
+	printk("Consumer got up from sleep\n");
 	while(!kthread_should_stop())
 	{
 		printk("===Consumer===\n");
@@ -647,12 +650,12 @@ int consumer(void *args)
 			wake_up_interruptible(&producer_waitq);
 		}
 	
-		set_current_state(TASK_INTERRUPTIBLE);
+		//set_current_state(TASK_INTERRUPTIBLE);
 		
 		if(curr == 0)
 		{
 			printk("Consumer: No jobs in the queue, putting into wait state\n");
-			set_current_state(TASK_INTERRUPTIBLE);
+			//set_current_state(TASK_INTERRUPTIBLE);
 			//printk("State of consumer when put to sleep: %ld\n", consume_thread->state);	
 			mutex_unlock(&mut_lock);
 			if(temp)
@@ -668,7 +671,9 @@ int consumer(void *args)
 				freeJob(kjob);			
 				kfree(temp);
 			}
-			schedule();
+			wait_event_interruptible(consumer_waitq, c_sleep_flag != 0);
+			c_sleep_flag = 0;
+			//schedule();
 			printk("Consumer is woken up by the producer\n");
 		}
 		else
